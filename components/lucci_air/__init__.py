@@ -19,6 +19,16 @@ from esphome.const import CONF_COMMAND, CONF_DEVICE_ID
 CODEOWNERS = ["@jeremy8883"]
 DEPENDENCIES = ["remote_base"]
 
+# Empty schema -- presence of `lucci_air:` in the user's YAML is what triggers
+# this module's import (and the @register_* decorators below) so that
+# `remote_transmitter.transmit_lucci_air` becomes a known action.
+CONFIG_SCHEMA = cv.Schema({})
+
+
+async def to_code(config):
+    pass
+
+
 lucci_air_ns = cg.esphome_ns.namespace("remote_base")
 
 (

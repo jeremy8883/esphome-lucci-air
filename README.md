@@ -12,6 +12,10 @@ Add the component to your ESPHome YAML:
 external_components:
   - source: github://jeremy8883/esphome-lucci-air
     components: [lucci_air]
+
+# This empty block must be present -- it tells ESPHome to actually load the
+# external component and register the `lucci_air` protocol with remote_base.
+lucci_air:
 ```
 
 You'll need a 433 MHz transmitter (and, for the first-time setup, a receiver) wired to GPIO pins.
@@ -24,6 +28,8 @@ Each Lucci remote is paired to a 50-bit `device_id`. To capture yours, temporari
 external_components:
   - source: github://jeremy8883/esphome-lucci-air
     components: [lucci_air]
+
+lucci_air:
 
 remote_receiver:
   pin: GPIO1  # whichever pin you wired the receiver's DATA to
