@@ -38,10 +38,10 @@ remote_receiver:
   idle: 25ms
 ```
 
-Open the ESPHome logs, then press a button (e.g. power) on the physical Lucci remote near the receiver. You should see a line like:
+Open the ESPHome logs, then press a button on the physical Lucci remote near the receiver. You should see a line like:
 
 ```
-[D][remote.lucci_air]: Received Lucci Air: command=power, device_id=0x2566A9A99A5A6
+[D][remote.lucci_air]: Received Lucci Air: command=light_toggle, device_id=0x2566A9A99A5A6
 ```
 
 Copy the `device_id` value for each remote you want to control.
@@ -56,20 +56,45 @@ remote_transmitter:
   carrier_duty_percent: 100%   # 433 MHz module, not IR, so keep at 100%
 ```
 
-Then call `remote_transmitter.transmit_lucci_air` from any automation:
+Call `remote_transmitter.transmit_lucci_air` from any automation. eg.
 
 ```yaml
+fan:
+  - platform: template
+    name: "Bedroom fan"
+    speed_count: 6
+    on_turn_off:
+      - remote_transmitter.transmit_lucci_air:
+          command: power_off
+          device_id: 0x2566A9A99A5A6
+    on_speed_set:
+      - remote_transmitter.transmit_lucci_air:
+          command: !lambda |-
+            using esphome::remote_base::LucciAirCommand;
+            switch ((int) x) {
+              case 1: return LucciAirCommand::SPEED_1;
+              case 2: return LucciAirCommand::SPEED_2;
+              case 3: return LucciAirCommand::SPEED_3;
+              case 4: return LucciAirCommand::SPEED_4;
+              case 5: return LucciAirCommand::SPEED_5;
+              case 6: return LucciAirCommand::SPEED_6;
+              default: return LucciAirCommand::UNKNOWN;
+            }
+          device_id: 0x2566A9A99A5A6
+
 button:
   - platform: template
-    name: "Fan power"
+    name: "Reverse fan direction"
     on_press:
       - remote_transmitter.transmit_lucci_air:
-          command: power
+          command: direction
           device_id: 0x2566A9A99A5A6
 ```
 
 ## Supported commands
 
-`power`, `light`, `direction`, `speed_cycle`, `away`, `speed_1` … `speed_6`, `timer_1h`, `timer_4h`, `timer_8h`.
+`power_off`, `light_toggle`, `direction`, `speed_cycle`, `away`, `speed_1` … `speed_6`, `timer_1h`, `timer_4h`, `timer_8h`.
 
-Note: `light` is a toggle, so you'll need to track your own optimistic state if you want to know whether it's currently on.
+Notes:
+- `power_off` only powers the fan off, `speed_1`...`speed_6` turns it on.
+- `light_toggle` toggles the light; the protocol has no "on" or "off" form, so track local state if you want a non-toggle switch in Home Assistant.
