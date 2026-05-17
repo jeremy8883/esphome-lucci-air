@@ -27,51 +27,66 @@ static const uint16_t BIT_ONE_US = 875;        // A wide pulse signaling logical
 static const uint16_t GAP_US = 5000;           // Gap between signals
 static const uint16_t COMMAND_GAP_US = 10000;  // Gap between command pairs
 
-const std::map<std::string, uint32_t> LucciAirProtocol::COMMANDS = {
-    {"direction", 0x1AAA9AAA}, {"speed_1", 0x16AA96AA},  {"speed_2", 0x29AAA9AA}, {"speed_3", 0x2A6AAA6A},
-    {"speed_4", 0x15AA95AA},   {"speed_5", 0x25AAA5AA},  {"speed_6", 0x26AAA6AA}, {"power", 0x19AA99AA},
-    {"timer_1h", 0x166A966A},  {"timer_4h", 0x266AA66A}, {"timer_8h", 0x1A6A9A6A}, {"light", 0x196A996A},
-    {"speed_cycle", 0x1A9A9A9A}, {"away", 0x2A9AAA9A},
+namespace {
+
+struct LucciAirCommandEntry {
+  LucciAirCommand command;
+  const char *name;
+  uint32_t value;
 };
 
-void LucciAirProtocol::encode_bit(RemoteTransmitData *dst, bool value, bool mark) const {
-  if (value) {
-    // Wide pulse = 1
-    if (mark) {
-      dst->mark(BIT_ONE_US);
-    } else {
-      dst->space(BIT_ONE_US);
-    }
-  } else {
-    // Narrow pulse = 0
-    if (mark) {
-      dst->mark(BIT_ZERO_US);
-    } else {
-      dst->space(BIT_ZERO_US);
-    }
+// Flat, flash-resident lookup table. Linear search is cheaper than std::map for ~14 entries
+// and avoids the 2KB+ red-black tree overhead.
+constexpr LucciAirCommandEntry COMMANDS[] = {
+    {LucciAirCommand::DIRECTION, "direction", 0x1AAA9AAA},
+    {LucciAirCommand::SPEED_1, "speed_1", 0x16AA96AA},
+    {LucciAirCommand::SPEED_2, "speed_2", 0x29AAA9AA},
+    {LucciAirCommand::SPEED_3, "speed_3", 0x2A6AAA6A},
+    {LucciAirCommand::SPEED_4, "speed_4", 0x15AA95AA},
+    {LucciAirCommand::SPEED_5, "speed_5", 0x25AAA5AA},
+    {LucciAirCommand::SPEED_6, "speed_6", 0x26AAA6AA},
+    {LucciAirCommand::POWER_OFF, "power_off", 0x19AA99AA},
+    {LucciAirCommand::TIMER_1H, "timer_1h", 0x166A966A},
+    {LucciAirCommand::TIMER_4H, "timer_4h", 0x266AA66A},
+    {LucciAirCommand::TIMER_8H, "timer_8h", 0x1A6A9A6A},
+    {LucciAirCommand::LIGHT_TOGGLE, "light_toggle", 0x196A996A},
+    {LucciAirCommand::SPEED_CYCLE, "speed_cycle", 0x1A9A9A9A},
+    {LucciAirCommand::AWAY, "away", 0x2A9AAA9A},
+};
+
+}  // namespace
+
+uint32_t LucciAirProtocol::command_to_start_value(LucciAirCommand command) {
+  for (const auto &entry : COMMANDS) {
+    if (entry.command == command)
+      return entry.value;
   }
+  return 0;
 }
 
-uint32_t LucciAirProtocol::get_command_start(const std::string &command) {
-  auto it = COMMANDS.find(command);
-  if (it != COMMANDS.end()) {
-    return it->second;
+LucciAirCommand LucciAirProtocol::value_to_command(uint32_t command_value) {
+  for (const auto &entry : COMMANDS) {
+    if (entry.value == command_value || (entry.value ^ COMMAND_END_MASK) == command_value)
+      return entry.command;
   }
-  return 0;  // Unknown command
+  return LucciAirCommand::UNKNOWN;
 }
 
-uint32_t LucciAirProtocol::get_command_end(const std::string &command) {
-  uint32_t start = get_command_start(command);
-  return start ^ COMMAND_END_MASK;
-}
-
-std::string LucciAirProtocol::get_command_name(uint32_t command_value) {
-  for (const auto &pair : COMMANDS) {
-    if (pair.second == command_value || (pair.second ^ COMMAND_END_MASK) == command_value) {
-      return pair.first;
-    }
+const char *LucciAirProtocol::command_to_string(LucciAirCommand command) {
+  for (const auto &entry : COMMANDS) {
+    if (entry.command == command)
+      return entry.name;
   }
   return "unknown";
+}
+
+void LucciAirProtocol::encode_bit(RemoteTransmitData *dst, bool value, bool mark) const {
+  uint16_t duration = value ? BIT_ONE_US : BIT_ZERO_US;
+  if (mark) {
+    dst->mark(duration);
+  } else {
+    dst->space(duration);
+  }
 }
 
 void LucciAirProtocol::encode_signal_with_command(RemoteTransmitData *dst, uint32_t command, uint64_t device_id) {
@@ -87,15 +102,14 @@ void LucciAirProtocol::encode_signal_with_command(RemoteTransmitData *dst, uint3
 }
 
 void LucciAirProtocol::encode(RemoteTransmitData *dst, const LucciAirData &data) {
-  ESP_LOGD(TAG, "Encoding Lucci Air signal for command: %s", data.command.c_str());
-
-  uint32_t command_start = get_command_start(data.command);
-  uint32_t command_end = get_command_end(data.command);
-
+  uint32_t command_start = command_to_start_value(data.command);
   if (command_start == 0) {
-    ESP_LOGE(TAG, "Unknown command: %s", data.command.c_str());
+    ESP_LOGE(TAG, "Unknown Lucci Air command (enum=%u)", static_cast<uint8_t>(data.command));
     return;
   }
+
+  ESP_LOGD(TAG, "Encoding Lucci Air signal for command: %s", command_to_string(data.command));
+  uint32_t command_end = command_start ^ COMMAND_END_MASK;
 
   // Send 5 repetitions of command start
   for (uint8_t rep = 0; rep < 5; rep++) {
@@ -119,24 +133,19 @@ void LucciAirProtocol::encode(RemoteTransmitData *dst, const LucciAirData &data)
 
 optional<bool> LucciAirProtocol::decode_bit(RemoteReceiveData &src, bool is_mark, uint8_t bit_position) const {
   if (is_mark) {
-    if (src.peek_mark(BIT_ONE_US, bit_position)) {
+    if (src.peek_mark(BIT_ONE_US, bit_position))
       return true;
-    }
-    if (src.peek_mark(BIT_ZERO_US, bit_position)) {
+    if (src.peek_mark(BIT_ZERO_US, bit_position))
       return false;
-    }
     ESP_LOGV(TAG, "Failed to decode mark at bit %d", bit_position);
     return {};
-  } else {
-    if (src.peek_space(BIT_ONE_US, bit_position)) {
-      return true;
-    }
-    if (src.peek_space(BIT_ZERO_US, bit_position)) {
-      return false;
-    }
-    ESP_LOGV(TAG, "Failed to decode space at bit %d", bit_position);
-    return {};
   }
+  if (src.peek_space(BIT_ONE_US, bit_position))
+    return true;
+  if (src.peek_space(BIT_ZERO_US, bit_position))
+    return false;
+  ESP_LOGV(TAG, "Failed to decode space at bit %d", bit_position);
+  return {};
 }
 
 optional<LucciAirData> LucciAirProtocol::decode(RemoteReceiveData src) {
@@ -161,24 +170,21 @@ optional<LucciAirData> LucciAirProtocol::decode(RemoteReceiveData src) {
       continue;
     }
 
-    // Store bit in appropriate field based on position
     if (i < 50) {
       // Device ID bits (0-49)
       data.device_id |= (1ULL << i);
-    } else if (i < SEQUENCE_LEN) {
+    } else {
       // Command bits (50-80)
       raw_command |= (1UL << (i - 50));
     }
   }
 
-  // Convert raw command to command name
-  data.command = get_command_name(raw_command);
-
+  data.command = value_to_command(raw_command);
   return data;
 }
 
 void LucciAirProtocol::dump(const LucciAirData &data) {
-  ESP_LOGD(TAG, "Received Lucci Air: command=%s, device_id=0x%llX", data.command.c_str(), data.device_id);
+  ESP_LOGD(TAG, "Received Lucci Air: command=%s, device_id=0x%llX", command_to_string(data.command), data.device_id);
 }
 
 }  // namespace remote_base

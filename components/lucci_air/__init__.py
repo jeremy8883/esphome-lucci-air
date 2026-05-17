@@ -29,7 +29,27 @@ async def to_code(config):
     pass
 
 
+# C++ types live in the existing `esphome::remote_base` namespace.
 lucci_air_ns = cg.esphome_ns.namespace("remote_base")
+
+LucciAirCommand = lucci_air_ns.enum("LucciAirCommand", is_class=True)
+
+LUCCI_AIR_COMMANDS = {
+    "direction": LucciAirCommand.DIRECTION,
+    "speed_1": LucciAirCommand.SPEED_1,
+    "speed_2": LucciAirCommand.SPEED_2,
+    "speed_3": LucciAirCommand.SPEED_3,
+    "speed_4": LucciAirCommand.SPEED_4,
+    "speed_5": LucciAirCommand.SPEED_5,
+    "speed_6": LucciAirCommand.SPEED_6,
+    "power_off": LucciAirCommand.POWER_OFF,
+    "timer_1h": LucciAirCommand.TIMER_1H,
+    "timer_4h": LucciAirCommand.TIMER_4H,
+    "timer_8h": LucciAirCommand.TIMER_8H,
+    "light_toggle": LucciAirCommand.LIGHT_TOGGLE,
+    "speed_cycle": LucciAirCommand.SPEED_CYCLE,
+    "away": LucciAirCommand.AWAY,
+}
 
 (
     LucciAirData,
@@ -39,26 +59,9 @@ lucci_air_ns = cg.esphome_ns.namespace("remote_base")
     LucciAirDumper,
 ) = declare_protocol("LucciAir")
 
-LUCCI_AIR_COMMANDS = [
-    "direction",
-    "speed_1",
-    "speed_2",
-    "speed_3",
-    "speed_4",
-    "speed_5",
-    "speed_6",
-    "power",
-    "timer_1h",
-    "timer_4h",
-    "timer_8h",
-    "light",
-    "speed_cycle",
-    "away",
-]
-
 LUCCI_AIR_SCHEMA = cv.Schema(
     {
-        cv.Required(CONF_COMMAND): cv.one_of(*LUCCI_AIR_COMMANDS, lower=True),
+        cv.Required(CONF_COMMAND): cv.enum(LUCCI_AIR_COMMANDS, lower=True),
         cv.Required(CONF_DEVICE_ID): cv.hex_uint64_t,
     }
 )
@@ -89,7 +92,7 @@ def lucci_air_dumper(var, config):
 
 @register_action("lucci_air", LucciAirAction, LUCCI_AIR_SCHEMA)
 async def lucci_air_action(var, config, args):
-    template_ = await cg.templatable(config[CONF_COMMAND], args, cg.std_string)
+    template_ = await cg.templatable(config[CONF_COMMAND], args, LucciAirCommand)
     cg.add(var.set_command(template_))
     template_ = await cg.templatable(config[CONF_DEVICE_ID], args, cg.uint64)
     cg.add(var.set_device_id(template_))
